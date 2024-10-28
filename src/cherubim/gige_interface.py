@@ -71,11 +71,16 @@ def start_camera(config, display_queue, stop_signal):
             self.offset_x = config.get('OffsetX',0)
             self.offset_y = config.get('OffsetY',0)
 
+            self.binning = config.get('Binning', 1)
+
             self.frame_rate = config['FrameRate']
 
+            self._camera.set_binning(self.binning, self.binning)
             self._camera.set_region (self.offset_x,self.offset_y,self.sx,self.sy)
             self._camera.set_frame_rate (self.frame_rate)
-            self._camera.set_exposure_time(0.95/self.frame_rate * 1e6) # max out exposure by default
+            self._camera.set_exposure_time_auto(False)
+            # print('Exposure times: ', self._camera.get_exposure_time_bounds())
+            self._camera.set_exposure_time(0.80/self.frame_rate * 1e6) # max out exposure by default
             
             self.mode = config.get('Mode', 'Bayer_RG8')
             if self.mode not in ['Mono8', 'YUV422', 'Bayer_RG8']:
@@ -134,6 +139,7 @@ def start_camera(config, display_queue, stop_signal):
 
                 if image:
                     if (image.get_status() != Aravis.BufferStatus.SUCCESS):
+                        print(image.get_status())
                         continue
                     if self._conversion_required:
                         self.debayer(image.get_data())

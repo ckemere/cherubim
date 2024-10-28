@@ -153,14 +153,15 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     config = {
-        'Interface': 'WebCam',
+        'Interface': 'GigE',
         'RecordVideo': True,
         'Mode': 'Bayer_RG8',
         'FilenameHeader': 'videodata',
         'Compress': False,
         # 'LogDirectory': os.getcwd(),
         'CameraIndex': 0,
-        'ResX': 320, 'ResY': 240, 'FrameRate': 30,
+        'Binning': 2, 
+        'ResX': 720, 'ResY': 540, 'FrameRate': 15,
         'CameraParams': {
             'Power Line frequency': 2, # 60 Hz
             'Gain': 10
