@@ -17,6 +17,8 @@ import sys
 import shutil
 import os.path
 
+import time
+
 # https://stackoverflow.com/questions/72188903/pyside6-how-do-i-resize-a-qlabel-without-loosing-the-size-aspect-ratio
 class ScaledLabel(QLabel):
     def __init__(self, *args, **kwargs):
@@ -38,7 +40,12 @@ class MainApp(QWidget):
     def __init__(self, config):
         QWidget.__init__(self)
         self.video_size = QSize(config.get('ResX'), config.get('ResY'))
-        self._recording_directory = os.path.dirname(__file__)
+        self._recording_directory = config.get('LogDirectory', None)
+        if self._recording_directory is None:
+            self._recording_directory = os.getcwd()
+        if not os.path.isdir(self._recording_directory):
+            raise(ValueError('VideoWriter LogDirectory [{}] not found.'.format(self._recording_directory)))
+
         total, used, free = shutil.disk_usage(self._recording_directory)
         print(self._recording_directory, free/(1024 **3))
 
@@ -93,7 +100,11 @@ class MainApp(QWidget):
         """Initialize camera.
         """
         self.display_queue = multiprocessing.Queue()
-        self.stop_signal = multiprocessing.Value('b', False)
+        self.writer_queue = multiprocessing.Queue()
+        self.acqusition_stop_signal = multiprocessing.Value('b', False)
+        self.writer_stop_signal = multiprocessing.Value('b', False)
+        self.writer_done_signal = multiprocessing.Value('b', False)
+        self.writer_queue_active_signal = multiprocessing.Value('b', False)
 
         self.interface_style = config.get('Interface', 'WebCam')
         if self.interface_style == 'GigE':
@@ -104,11 +115,20 @@ class MainApp(QWidget):
             print('Unsupported Interface')
 
         self.camera_process = multiprocessing.Process(target=start_camera, 
-            args=(config, self.display_queue, self.stop_signal))
+            args=(config, self.display_queue, self.writer_queue, 
+                    self.acqusition_stop_signal, self.writer_queue_active_signal))
+
         self.camera_process.start()
 
-        print('Started Camera Process.')
+        self.writer_process = None
+        if config['RecordVideo']:
+            from videowriter import start_writer
+            self.writer_process = multiprocessing.Process(target=start_writer,
+                args=(config, self.writer_queue, self.writer_stop_signal, self.writer_done_signal))
+            self.writer_process.start()
+            self.writer_queue_active_signal.value = True
 
+        
         self.video_timer = QTimer()
         self.video_timer.timeout.connect(self.display_video_stream)
         self.video_timer.start(10)
@@ -130,7 +150,8 @@ class MainApp(QWidget):
             return
         
         if queued_data is None: # If we pushed a None onto the queue, that means the camera process has finished
-            self.close()
+            print('Oops')
+            # self.close()
             return
 
         (img, timestamp) = queued_data
@@ -140,11 +161,20 @@ class MainApp(QWidget):
 
     def closeEvent(self, event):
         print('Setting stop signal')
-        self.stop_signal.value = True
+        self.acqusition_stop_signal.value = True # This should trigger a None, causing writer to exit
+
+        if self.writer_process is not None:
+            self.writer_process.join()
+
         while True:
-            queued_data = self.display_queue.get(block=True)
+            queued_data = self.display_queue.get(block=True) #(block=True, timeout=0.1)
             if queued_data is None:
+                print('Cleared display queue to None')
                 break
+
+        if self.camera_process is not None:
+            self.camera_process.join()
+
         
         event.accept()
 
@@ -153,11 +183,12 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     config = {
-        'Interface': 'GigE',
+        'Interface': 'WebCam',
+        # 'Interface': 'GigE',
         'RecordVideo': True,
-        'Mode': 'Bayer_RG8',
-        'FilenameHeader': 'videodata',
-        'Compress': False,
+        # 'Mode': 'Bayer_RG8',
+        'Mode': 'RGB8',
+        'Compress': True,
         # 'LogDirectory': os.getcwd(),
         'CameraIndex': 0,
         'Binning': 2, 

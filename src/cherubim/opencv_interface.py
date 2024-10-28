@@ -45,14 +45,17 @@ def check_camera(config):
         return None
 
 
-def start_camera(config, display_queue, stop_signal):
+def start_camera(config, display_queue, write_queue, stop_signal, write_queue_signal):
+
     multiprocessing.current_process().name = "python3 Webcam Iface"
     setproctitle.setproctitle(multiprocessing.current_process().name)
 
     class CameraInterface():
-        def __init__(self, config, stop_signal, display_queue, write_queue=None):
+        def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
             self._display_queue = display_queue
+            self._write_queue = write_queue
             self._stop_signal = stop_signal
+            self._write_queue_signal = write_queue_signal
 
             try:
                 self._capture = cv2.VideoCapture(config.get('CameraIndex', 0))
@@ -82,6 +85,9 @@ def start_camera(config, display_queue, stop_signal):
             self._rgb_img = np.zeros((self.sy, self.sx,3))  # converted image data is RGB
             self._conversion_required = True
 
+            self._write_queue_is_active = False
+
+
             # print ("Camera vendor : %s" %(self._camera.get_vendor_name ()))
             # print ("Camera model  : %s" %(self._camera.get_model_name ()))
             # print ("ROI           : %dx%d at %d,%d" %(width, height, x, y))
@@ -101,7 +107,14 @@ def start_camera(config, display_queue, stop_signal):
                     print('Error in capture. Returned None.')
                     break
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # self._display_queue.put((self._rgb_img, image.get_system_timestamp())) # could be block=False, but then need to wrap with a try/except queue.Full: /continue
+
+                if self._write_queue_signal.value:
+                    self._write_queue.put((frame, time.monotonic())) # needs to block because we want every frame saved!
+                    self._write_queue_is_active = True
+                elif self._write_queue_is_active: # We've recently toggled recording off
+                    self._write_queue.put(None)
+                    self._write_queue_is_active = False
+
                 try:
                     self._display_queue.put((frame, time.monotonic()), block=False)
                 except queue.Full:
@@ -109,13 +122,22 @@ def start_camera(config, display_queue, stop_signal):
                     continue
 
             self._capture.release()
+            if self._write_queue_is_active:
+                self._write_queue.put(None)
             self._display_queue.put(None) # Sentinel that we're done!
             print ("Stopped acquisition")
 
 
-    camera = CameraInterface(config, display_queue=display_queue, stop_signal=stop_signal)
-    camera.run()
-    print('Ended run')
+    camera = CameraInterface(config, 
+                             display_queue=display_queue, 
+                             write_queue=write_queue,
+                             stop_signal=stop_signal, 
+                             write_queue_signal=write_queue_signal)
+    try:
+        camera.run()
+    except:
+        print('Caught something!!!')
+        return
     print('Done in camera exit.')
 
 

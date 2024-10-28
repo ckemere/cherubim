@@ -47,7 +47,7 @@ def check_camera(config):
     return (width, height)
 
 
-def start_camera(config, display_queue, stop_signal):
+def start_camera(config, display_queue, write_queue, stop_signal, write_queue_signal):
     multiprocessing.current_process().name = "python3 GigE Iface"
     setproctitle.setproctitle(multiprocessing.current_process().name)
 
@@ -56,9 +56,11 @@ def start_camera(config, display_queue, stop_signal):
     from gi.repository import Aravis
 
     class CameraInterface():
-        def __init__(self, config, stop_signal, display_queue, write_queue=None):
+        def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
             self._display_queue = display_queue
+            self._write_queue = write_queue
             self._stop_signal = stop_signal
+            self._write_queue_signal = write_queue_signal
 
             try:
                 self._camera = Aravis.Camera.new (None)
@@ -108,9 +110,6 @@ def start_camera(config, display_queue, stop_signal):
 
             # Initialize two numpy buffers for deBayer'ing
             self._rgb_img = np.zeros((height, width,3))  # converted image data is RGB
-            self._conversion_required = False
-
-            self._conversion_required = True # TODO: revisit
 
             payload = self._camera.get_payload ()
 
@@ -125,7 +124,9 @@ def start_camera(config, display_queue, stop_signal):
             for i in range(0,50): # Is 50 enough?
                 self._stream.push_buffer (Aravis.Buffer.new_allocate (payload))
 
-        def debayer(self, img):
+            self._write_queue_is_active = False
+
+        def convert(self, img):
             if self.mode == 'Mono8': # no need!
                 self._rgb_img = np.frombuffer(img, np.uint8).reshape(self.sy, self.sx,1) # this is a cast!
             elif self.mode == 'Bayer_RG8':
@@ -148,21 +149,33 @@ def start_camera(config, display_queue, stop_signal):
                     if (image.get_status() != Aravis.BufferStatus.SUCCESS):
                         print(image.get_status())
                         continue
-                    if self._conversion_required:
-                        self.debayer(image.get_data())
-                        # self._display_queue.put((self._rgb_img, image.get_system_timestamp())) # could be block=False, but then need to wrap with a try/except queue.Full: /continue
-                        try:
-                            self._display_queue.put(
-                                (self._rgb_img, image.get_system_timestamp()), 
-                                block=False)
-                        except queue.Full:
-                            continue
 
+                    self.convert(image.get_data())
+
+                    if self._write_queue_signal.value:
+                        self._write_queue.put((self._rgb_img, image.get_system_timestamp())) # needs to block because we want every frame saved!
+                        self._write_queue_is_active = True
+                    elif self._write_queue_is_active: # We've recently toggled recording off
+                        self._write_queue.put(None)
+                        self._write_queue_is_active = False
+
+                    try:
+                        self._display_queue.put(
+                            (self._rgb_img, image.get_system_timestamp()), 
+                            block=False) # doesn't need to block because we don't care about dropping frames
+                    except queue.Full:
+                        continue
+                        
                     self._stream.push_buffer (image)
 
             self._camera.stop_acquisition ()
             self._camera = None
+            if self._write_queue_is_active:
+                self._write_queue.put(None) # Sentinel that we're done!
+                print('Pushed a None onto write queue')
+
             self._display_queue.put(None) # Sentinel that we're done!
+
             print ("Stopped acquisition")
 
         # def close(self):
@@ -170,7 +183,8 @@ def start_camera(config, display_queue, stop_signal):
         #         self._camera.stop_acquisition ()
 
 
-    camera = CameraInterface(config, display_queue=display_queue, stop_signal=stop_signal)
+    camera = CameraInterface(config, display_queue=display_queue, 
+                             stop_signal=stop_signal, write_queue=write_queue)
     camera.run()
     print('Ended run')
     print('Done in camera exit.')
