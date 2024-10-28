@@ -97,7 +97,12 @@ def start_camera(config, display_queue, stop_signal):
                 self._bytes_per_pixel = 1
             else:
                 raise ValueError('Unsupported video mode.')
-            payload = self._camera.get_payload ()
+
+
+            print('Initial packet size: ', self._camera.gv_get_packet_size())
+            self._camera.gv_set_packet_size(9000) # Assumes we have set the MTU on the GigE Interface
+            # self._camera.gv_auto_packet_size() # This will set packet size to max. Very important
+            print('After autoset packet size: ', self._camera.gv_get_packet_size())
 
             [x,y,width,height] = self._camera.get_region ()
 
@@ -106,6 +111,8 @@ def start_camera(config, display_queue, stop_signal):
             self._conversion_required = False
 
             self._conversion_required = True # TODO: revisit
+
+            payload = self._camera.get_payload ()
 
             print ("Camera vendor : %s" %(self._camera.get_vendor_name ()))
             print ("Camera model  : %s" %(self._camera.get_model_name ()))
