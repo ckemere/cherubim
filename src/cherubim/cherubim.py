@@ -19,6 +19,9 @@ import os.path
 
 import time
 
+from videowriter import start_writer
+
+
 # https://stackoverflow.com/questions/72188903/pyside6-how-do-i-resize-a-qlabel-without-loosing-the-size-aspect-ratio
 class ScaledLabel(QLabel):
     def __init__(self, *args, **kwargs):
@@ -53,6 +56,8 @@ class MainApp(QWidget):
         self.setGeometry(0, 0, 640, 480)
         self.setup_camera(config)
 
+        self.recording_active = False
+
     def update_free_space(self):
         total, used, free = shutil.disk_usage(self._recording_directory)
         self.disk_space_label.setText("Free: {:7.2f}G".format(free/(1024**3)))
@@ -66,6 +71,9 @@ class MainApp(QWidget):
 
         # Top Row
         self.record_button = QPushButton("⏺ REC")
+        self.record_button.setCheckable(True)  # Make the button checkable
+        self.record_button.clicked.connect(self.handle_record_button)
+
         self.filename_label = QLabel("{}".format(self._recording_directory))
         self.disk_space_label = QLabel("Diskspace")
         self.quit_button = QPushButton("Quit")
@@ -120,18 +128,34 @@ class MainApp(QWidget):
 
         self.camera_process.start()
 
-        self.writer_process = None
         if config['RecordVideo']:
-            from videowriter import start_writer
-            self.writer_process = multiprocessing.Process(target=start_writer,
-                args=(config, self.writer_queue, self.writer_stop_signal, self.writer_done_signal))
-            self.writer_process.start()
-            self.writer_queue_active_signal.value = True
-
+            self.start_record()
         
         self.video_timer = QTimer()
         self.video_timer.timeout.connect(self.display_video_stream)
         self.video_timer.start(10)
+
+
+    def handle_record_button(self):
+        if self.recording_active:
+            # stop writing
+            self.writer_queue_active_signal.value = False # triggers end of write by sending None on queue
+            while not self.writer_done_signal.value:
+                pass
+            self.writer_process.join()
+            self.recording_active = False
+            print("Stopped writer")
+
+        else:
+            self.start_record()
+
+    def start_record(self):
+        self.writer_done_signal.value = False
+        self.writer_process = multiprocessing.Process(target=start_writer,
+            args=(config, self.writer_queue, self.writer_stop_signal, self.writer_done_signal))
+        self.writer_process.start()
+        self.writer_queue_active_signal.value = True
+        self.recording_active = True
 
 
     def display_video_stream(self):
@@ -185,7 +209,7 @@ if __name__ == "__main__":
     config = {
         'Interface': 'WebCam',
         # 'Interface': 'GigE',
-        'RecordVideo': True,
+        'RecordVideo': False,
         # 'Mode': 'Bayer_RG8',
         'Mode': 'RGB8',
         'Compress': True,
