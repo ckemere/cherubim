@@ -3,7 +3,7 @@
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, \
-  QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy, QFrame
+  QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy, QStatusBar
 
 import multiprocessing.queues
 import numpy as np
@@ -17,7 +17,7 @@ import sys
 import shutil
 import os.path
 
-import time
+import datetime
 
 from videowriter import start_writer
 
@@ -30,37 +30,46 @@ class ScaledLabel(QLabel):
     
     def resizeEvent(self, event):
         self.setPixmap(self._pixmap)
+        print(self.frameSize())
 
     def setPixmap(self, pixmap): #overiding setPixmap
         if not pixmap:return 
         self._pixmap = pixmap
+        # return QLabel.setPixmap(self,self._pixmap)
         return QLabel.setPixmap(self,self._pixmap.scaled(
-                self.frameSize(),
-                Qt.KeepAspectRatio))
+            self.frameSize(),
+            Qt.KeepAspectRatio))
+
 
 class MainApp(QWidget):
 
     def __init__(self, config):
         QWidget.__init__(self)
         self.video_size = QSize(config.get('ResX'), config.get('ResY'))
-        self._recording_directory = config.get('LogDirectory', None)
-        if self._recording_directory is None:
-            self._recording_directory = os.getcwd()
-        if not os.path.isdir(self._recording_directory):
-            raise(ValueError('VideoWriter LogDirectory [{}] not found.'.format(self._recording_directory)))
 
-        total, used, free = shutil.disk_usage(self._recording_directory)
-        print(self._recording_directory, free/(1024 **3))
+        # Initialization related to file saving
+        self.recording_directory = config.get('LogDirectory', os.getcwd())
+        if not os.path.isdir(self.recording_directory):
+            raise(ValueError('VideoWriter LogDirectory [{}] not found.'.format(self.recording_directory)))
+        self.filename_header = config.get('FilenameHeader', None)
+        self.writer_filename = None
+        self.recording_active = False
 
         self.setup_ui()
         self.setGeometry(0, 0, 640, 480)
         self.setup_camera(config)
 
-        self.recording_active = False
-
     def update_free_space(self):
-        total, used, free = shutil.disk_usage(self._recording_directory)
+        total, used, free = shutil.disk_usage(self.recording_directory)
         self.disk_space_label.setText("Free: {:7.2f}G".format(free/(1024**3)))
+
+        if self.recording_active:
+            self.filename_label.setText("{}".format(self.recording_directory))
+            self.filename_label.setStyleSheet("QLabel { background-color : pink; color : blue; }");
+        else:
+            self.filename_label.setText("{}".format(self.recording_directory))
+            self.filename_label.setStyleSheet("QLabel { background-color : white; color : black; }");
+
 
     def setup_ui(self):
         """Initialize widgets.
@@ -71,37 +80,39 @@ class MainApp(QWidget):
 
         # Top Row
         self.record_button = QPushButton("⏺ REC")
+        self.record_button.setSizePolicy( QSizePolicy.Fixed, QSizePolicy.Fixed )
         self.record_button.setCheckable(True)  # Make the button checkable
         self.record_button.clicked.connect(self.handle_record_button)
 
-        self.filename_label = QLabel("{}".format(self._recording_directory))
-        self.disk_space_label = QLabel("Diskspace")
-        self.quit_button = QPushButton("Quit")
-        self.quit_button.clicked.connect(self.close)
+        self.filename_label = QLabel("{}".format(self.recording_directory))
+        self.disk_space_label = QLabel("") # This will show available disk space
+        self.update_free_space()
+        self.disk_space_timer = QTimer()
+        self.disk_space_timer.timeout.connect(self.update_free_space)
+        self.disk_space_timer.start(1000) # Update disk space every second
+
+        # self.quit_button = QPushButton("Quit")
+        # self.quit_button.clicked.connect(self.close)
+
         self.top_row_layout = QHBoxLayout()
         self.top_row_layout.addWidget(self.record_button)
         self.top_row_layout.addWidget(self.filename_label)
         self.top_row_layout.addWidget(self.disk_space_label)
-        self.update_free_space()
-        self.disk_space_timer = QTimer()
-        self.disk_space_timer.timeout.connect(self.update_free_space)
-        self.disk_space_timer.start(1000)
-
-
-        self.top_row_layout.addWidget(self.quit_button)
+        # self.top_row_layout.addWidget(self.quit_button)
 
         self.main_layout = QVBoxLayout()
-        self.main_layout.addLayout(self.top_row_layout)
-        self.main_layout.addWidget(self.image_label)
+        self.main_layout.addLayout(self.top_row_layout, stretch=0)
+        self.main_layout.addWidget(self.image_label, stretch=1)
+
+        self.status_bar = QStatusBar()
+        self.main_layout.addWidget(self.status_bar, stretch=0)
+
         self.main_layout.setSpacing(5)
         self.main_layout.setContentsMargins(5,5,5,5)
         self.top_row_layout.setSpacing(5)
 
-
         self.setLayout(self.main_layout)
         # self.setFrameShape(QFrame.NoFrame)
-
-        self.interface_style = None
 
 
     def setup_camera(self, config):
@@ -114,6 +125,8 @@ class MainApp(QWidget):
         self.writer_done_signal = multiprocessing.Value('b', False)
         self.writer_queue_active_signal = multiprocessing.Value('b', False)
 
+        self.recording_active = False
+
         self.interface_style = config.get('Interface', 'WebCam')
         if self.interface_style == 'GigE':
             from gige_interface import start_camera
@@ -125,12 +138,13 @@ class MainApp(QWidget):
         self.camera_process = multiprocessing.Process(target=start_camera, 
             args=(config, self.display_queue, self.writer_queue, 
                     self.acqusition_stop_signal, self.writer_queue_active_signal))
-
         self.camera_process.start()
 
+        self.writer_process = None
+
         if config['RecordVideo']:
-            self.start_record()
-        
+            self.record_button.click()
+                
         self.video_timer = QTimer()
         self.video_timer.timeout.connect(self.display_video_stream)
         self.video_timer.start(10)
@@ -139,20 +153,32 @@ class MainApp(QWidget):
     def handle_record_button(self):
         if self.recording_active:
             # stop writing
+            self.status_bar.showMessage("Finalizing writing.")
             self.writer_queue_active_signal.value = False # triggers end of write by sending None on queue
             while not self.writer_done_signal.value:
                 pass
             self.writer_process.join()
             self.recording_active = False
-            print("Stopped writer")
+            self.status_bar.showMessage("Stopped recording.")
+            self.record_button.setText("⏺ REC")
+
 
         else:
             self.start_record()
+            self.status_bar.showMessage("Recording to {}.".format(self.writer_filename))
+            self.record_button.setText("⏸︎ STOP")
+
 
     def start_record(self):
         self.writer_done_signal.value = False
+        now = datetime.datetime.now()
+        if self.filename_header is None:
+            self.writer_filename = 'ExperimentVideo_{}'.format(now.strftime("%Y-%m-%d_%H%M"))
+        else:
+            self.writer_filename = '{}_{}'.format(self.filename_header, now.strftime("%Y-%m-%d_%H%M"))
+
         self.writer_process = multiprocessing.Process(target=start_writer,
-            args=(config, self.writer_queue, self.writer_stop_signal, self.writer_done_signal))
+            args=(config, self.writer_queue, self.writer_done_signal, self.writer_filename))
         self.writer_process.start()
         self.writer_queue_active_signal.value = True
         self.recording_active = True
@@ -185,6 +211,8 @@ class MainApp(QWidget):
 
     def closeEvent(self, event):
         print('Setting stop signal')
+        self.status_bar.showMessage('Finalizing writing.')
+        # self.processEvents()
         self.acqusition_stop_signal.value = True # This should trigger a None, causing writer to exit
 
         if self.writer_process is not None:
@@ -198,7 +226,6 @@ class MainApp(QWidget):
 
         if self.camera_process is not None:
             self.camera_process.join()
-
         
         event.accept()
 
@@ -209,7 +236,7 @@ if __name__ == "__main__":
     config = {
         'Interface': 'WebCam',
         # 'Interface': 'GigE',
-        'RecordVideo': False,
+        'RecordVideo': True,
         # 'Mode': 'Bayer_RG8',
         'Mode': 'RGB8',
         'Compress': True,
