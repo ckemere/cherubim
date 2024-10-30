@@ -142,7 +142,7 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
             while not self._stop_signal.value:
                 image = None
                 while image is None and not self._stop_signal.value:
-                    image = self._stream.try_pop_buffer ()
+                    image = self._stream.timeout_pop_buffer (500) # timeout is us
 
                 if self._stop_signal.value:
                     break
