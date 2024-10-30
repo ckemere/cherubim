@@ -245,14 +245,14 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     config = {
-        'Interface': 'WebCam',
-        # 'Interface': 'GigE',
+        # 'Interface': 'WebCam',
+        # 'Mode': 'RGB8',
+        'CameraIndex': 0,
+        'Interface': 'GigE',
+        'Mode': 'Bayer_RG8',
         'RecordVideo': True,
-        # 'Mode': 'Bayer_RG8',
-        'Mode': 'RGB8',
         'Compress': True,
         # 'LogDirectory': os.getcwd(),
-        'CameraIndex': 0,
         'Binning': 2, 
         'ResX': 720, 'ResY': 540, 'FrameRate': 15,
         'CameraParams': {

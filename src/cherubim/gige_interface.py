@@ -184,7 +184,9 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
 
 
     camera = CameraInterface(config, display_queue=display_queue, 
-                             stop_signal=stop_signal, write_queue=write_queue)
+                             stop_signal=stop_signal, 
+                             write_queue=write_queue,
+                             write_queue_signal=write_queue_signal)
     camera.run()
     print('Ended run')
     print('Done in camera exit.')
