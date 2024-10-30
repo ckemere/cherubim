@@ -54,6 +54,10 @@ class MainApp(QWidget):
         self.filename_header = config.get('FilenameHeader', None)
         self.writer_filename = None
         self.recording_active = False
+    
+        # stuff specifically to help with quitting
+        self.display_queue_empty = False # This only is set when quitting
+        self.writer_finalizing_counter = 0
 
         self.setup_ui()
         self.setGeometry(0, 0, 640, 480)
@@ -151,16 +155,19 @@ class MainApp(QWidget):
 
 
     def handle_record_button(self):
-        if self.recording_active:
-            # stop writing
-            self.status_bar.showMessage("Finalizing writing.")
+        if self.recording_active: # stop writing
             self.writer_queue_active_signal.value = False # triggers end of write by sending None on queue
-            while not self.writer_done_signal.value:
-                pass
-            self.writer_process.join()
-            self.recording_active = False
-            self.status_bar.showMessage("Stopped recording.")
-            self.record_button.setText("⏺ REC")
+            self.writer_finalizing_counter += 1
+            self.status_bar.showMessage("Finalizing writing." + '.' * (self.writer_finalizing_counter % 5))
+            if not self.writer_done_signal.value: 
+                QTimer.singleShot(10, self.handle_record_button) # Come back to this close event again in a 10 ms!
+                return
+            else:
+                self.writer_process.join()
+                self.recording_active = False
+                self.writer_finalizing_counter = 0
+                self.status_bar.showMessage("Stopped recording.")
+                self.record_button.setText("⏺ REC")
 
 
         else:
@@ -200,8 +207,7 @@ class MainApp(QWidget):
             return
         
         if queued_data is None: # If we pushed a None onto the queue, that means the camera process has finished
-            print('Oops')
-            # self.close()
+            self.display_queue_empty = True
             return
 
         (img, timestamp) = queued_data
@@ -210,19 +216,24 @@ class MainApp(QWidget):
         self.image_label.setPixmap(QPixmap.fromImage(image))
 
     def closeEvent(self, event):
-        print('Setting stop signal')
-        self.status_bar.showMessage('Finalizing writing.')
-        # self.processEvents()
         self.acqusition_stop_signal.value = True # This should trigger a None, causing writer to exit
+        if self.recording_active:  # stop writing
+            self.writer_finalizing_counter += 1
+            self.status_bar.showMessage("Finalizing writing." + '.' * (self.writer_finalizing_counter % 5))
+            if not self.writer_done_signal.value: 
+                QTimer.singleShot(10, self.close) # Come back to this close event again in a 10 ms!
+                event.ignore()
+                return
+            else:
+                self.writer_process.join()
+                self.recording_active = False
 
-        if self.writer_process is not None:
-            self.writer_process.join()
-
-        while True:
-            queued_data = self.display_queue.get(block=True) #(block=True, timeout=0.1)
-            if queued_data is None:
-                print('Cleared display queue to None')
-                break
+        if not self.display_queue_empty:
+            while True:
+                queued_data = self.display_queue.get(block=True) #(block=True, timeout=0.1)
+                if queued_data is None:
+                    print('Cleared display queue to None')
+                    break
 
         if self.camera_process is not None:
             self.camera_process.join()
