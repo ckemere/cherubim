@@ -81,8 +81,9 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
             self._camera.set_region (self.offset_x,self.offset_y,self.sx,self.sy)
             self._camera.set_frame_rate (self.frame_rate)
             self._camera.set_exposure_time_auto(False)
-            # print('Exposure times: ', self._camera.get_exposure_time_bounds())
-            self._camera.set_exposure_time(0.80/self.frame_rate * 1e6) # max out exposure by default
+            self._camera.set_exposure_time(
+                config.get('ExposureTime', 0.5/self.frame_rate * 1e6) # default 50% of frame rate
+            )
             
             self.mode = config.get('Mode', 'Bayer_RG8')
             if self.mode not in ['Mono8', 'YUV422', 'Bayer_RG8']:
@@ -115,6 +116,7 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
 
             print ("Camera vendor : %s" %(self._camera.get_vendor_name ()))
             print ("Camera model  : %s" %(self._camera.get_model_name ()))
+            print ("Camera device  : %s" %(self._camera.get_device_id ()))
             print ("ROI           : %dx%d at %d,%d" %(width, height, x, y))
             print ("Payload       : %d" %(payload))
             print ("Pixel format  : %s" %(self._camera.get_pixel_format_as_string ()))

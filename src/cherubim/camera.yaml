@@ -1,0 +1,14 @@
+# Config file for LUCID PHX016S-CC
+'CameraIndex': 0
+'Interface': 'GigE' # 'WebCam'
+'Mode': 'Bayer_RG8' # For webcam, use 'RGB8'
+'RecordVideo': True
+'Compress': True # Otherwise Raw!
+#'LogDirectory': os.getcwd()
+'Binning': 2 # Same for X and Y
+'ResX': 720 # This is after binning!
+'ResY': 540 # This is after binning!
+'OffsetX': 0
+'OffsetY': 0
+'FrameRate': 15
+'ExposureTime': 1000.0 # In us

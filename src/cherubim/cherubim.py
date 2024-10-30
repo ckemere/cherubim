@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QImage, QPixmap
@@ -18,6 +18,8 @@ import shutil
 import os.path
 
 import datetime
+
+import yaml
 
 from videowriter import start_writer
 
@@ -241,26 +243,45 @@ class MainApp(QWidget):
         event.accept()
 
 
+def read_config_file(file_path):
+    with open(file_path, 'r') as file:
+        try:
+            data = yaml.safe_load(file)
+            return data
+        except yaml.YAMLError as e:
+            print(f"Error reading YAML file: {e}")
+            return None
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    config = {
-        # 'Interface': 'WebCam',
-        # 'Mode': 'RGB8',
+    default_config = {
         'CameraIndex': 0,
-        'Interface': 'GigE',
-        'Mode': 'Bayer_RG8',
+        'Interface': 'GigE', # 'WebCam'
+        'Mode': 'Bayer_RG8', # For webcam, use 'RGB8'
         'RecordVideo': True,
-        'Compress': True,
-        # 'LogDirectory': os.getcwd(),
+        'Compress': True, # Otherwise Raw!
+        'LogDirectory': os.getcwd(),
         'Binning': 2, 
-        'ResX': 720, 'ResY': 540, 'FrameRate': 15,
-        'CameraParams': {
-            'Power Line frequency': 2, # 60 Hz
-            'Gain': 10
-        }
-
+        'ResX': 720, 'ResY': 540, # This is after binning!
+        'OffsetX': 0,
+        'OffsetY': 0,
+        'FrameRate': 15,
+        'ExposureTime': 1000.0, # In us
     }
+
+
+    if len(sys.argv) >= 2:
+        config = read_config_file(sys.argv[1])
+        if config is None:
+            sys.exit(1)
+    else:            
+        print('Using default config: ')
+        for key, value in default_config.items():
+            print(key, ":", value)
+        config = default_config
+
+
 
     interface_style = config.get('Interface', 'WebCam')
     if interface_style == 'GigE':
