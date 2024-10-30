@@ -1,5 +1,8 @@
 # Config file for LUCID PHX016S-CC
-'CameraID': 'Lucid Vision Labs-PHX016S-C-221501060' # Find this out from arv-tool. Integers from 0 for Webcam
+'CameraID': 'Lucid Vision Labs-PHX016S-C-221501060' # Find this out from arv-tool. 
+          # If you don't specify a parameter, it will default to None, 
+          # which will find a camera. 
+          # For WebCam interface, we use integers starting from 0
 'Interface': 'GigE' # 'WebCam'
 'Mode': 'Bayer_RG8' # For webcam, use 'RGB8'
 'RecordVideo': True
