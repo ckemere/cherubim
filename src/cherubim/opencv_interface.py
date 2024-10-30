@@ -12,7 +12,7 @@ def check_camera(config):
     offset_x = config.get('OffsetX',0)
     offset_y = config.get('OffsetY',0)
 
-    camera_index = config.get('CameraIndex', 0)
+    camera_index = config.get('CameraID', 0)
 
     try:
         capture = cv2.VideoCapture(camera_index)

@@ -1,5 +1,5 @@
 # Config file for LUCID PHX016S-CC
-'CameraIndex': 0
+'CameraID': 'Lucid Vision Labs-PHX016S-C-221501060' # Find this out from arv-tool. Integers from 0 for Webcam
 'Interface': 'GigE' # 'WebCam'
 'Mode': 'Bayer_RG8' # For webcam, use 'RGB8'
 'RecordVideo': True
@@ -11,4 +11,4 @@
 'OffsetX': 0
 'OffsetY': 0
 'FrameRate': 15
-'ExposureTime': 1000.0 # In us
+'ExposureTime': 500.0 # In us

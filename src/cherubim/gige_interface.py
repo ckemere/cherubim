@@ -63,7 +63,7 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
             self._write_queue_signal = write_queue_signal
 
             try:
-                self._camera = Aravis.Camera.new (None)
+                self._camera = Aravis.Camera.new (config.get('CameraID', None))
             except:
                 print ("No camera found")
                 exit ()

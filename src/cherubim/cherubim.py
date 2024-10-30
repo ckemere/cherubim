@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 from PySide6.QtCore import QSize, QTimer, Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, \
-  QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy, QStatusBar
+  QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy, \
+  QStatusBar
 
 import multiprocessing.queues
 import numpy as np
@@ -17,7 +18,7 @@ import sys
 import shutil
 import os.path
 
-import datetime
+import datetime, time
 
 import yaml
 
@@ -56,6 +57,7 @@ class MainApp(QWidget):
         self.filename_header = config.get('FilenameHeader', None)
         self.writer_filename = None
         self.recording_active = False
+        self.recording_time_start = 0
     
         # stuff specifically to help with quitting
         self.display_queue_empty = False # This only is set when quitting
@@ -65,16 +67,29 @@ class MainApp(QWidget):
         self.setGeometry(0, 0, 640, 480)
         self.setup_camera(config)
 
+        # Create a shortcut for Ctrl+Q
+        quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        quit_shortcut.activated.connect(self.close)
+
     def update_free_space(self):
         total, used, free = shutil.disk_usage(self.recording_directory)
         self.disk_space_label.setText("Free: {:7.2f}G".format(free/(1024**3)))
-
         if self.recording_active:
             self.filename_label.setText("{}".format(self.recording_directory))
             self.filename_label.setStyleSheet("QLabel { background-color : pink; color : blue; }");
         else:
             self.filename_label.setText("{}".format(self.recording_directory))
             self.filename_label.setStyleSheet("QLabel { background-color : white; color : black; }");
+
+
+    def update_recording_time(self):
+        if self.recording_active:
+            recording_time = time.time() - self.recording_time_start
+            self.recording_time_label.setText(str(datetime.timedelta(seconds=round(recording_time))))
+            self.recording_time_label.setStyleSheet("QLabel { background-color : pink; color : blue; }");
+        else:
+            self.recording_time_label.setText("0:00:00")
+            self.recording_time_label.setStyleSheet("QLabel { background-color : white; color : black; }");
 
 
     def setup_ui(self):
@@ -90,12 +105,22 @@ class MainApp(QWidget):
         self.record_button.setCheckable(True)  # Make the button checkable
         self.record_button.clicked.connect(self.handle_record_button)
 
+
         self.filename_label = QLabel("{}".format(self.recording_directory))
         self.disk_space_label = QLabel("") # This will show available disk space
+        self.disk_space_label.setSizePolicy( QSizePolicy.Fixed, QSizePolicy.Fixed )
         self.update_free_space()
         self.disk_space_timer = QTimer()
         self.disk_space_timer.timeout.connect(self.update_free_space)
         self.disk_space_timer.start(1000) # Update disk space every second
+
+        self.recording_time_label = QLabel("") # This will show available disk space
+        self.recording_time_label.setSizePolicy( QSizePolicy.Fixed, QSizePolicy.Fixed )
+
+        self.update_recording_time()
+        self.recording_time_timer = QTimer()
+        self.recording_time_timer.timeout.connect(self.update_recording_time)
+        self.recording_time_timer.start(1000) # Update disk space every second
 
         # self.quit_button = QPushButton("Quit")
         # self.quit_button.clicked.connect(self.close)
@@ -104,6 +129,7 @@ class MainApp(QWidget):
         self.top_row_layout.addWidget(self.record_button)
         self.top_row_layout.addWidget(self.filename_label)
         self.top_row_layout.addWidget(self.disk_space_label)
+        self.top_row_layout.addWidget(self.recording_time_label)
         # self.top_row_layout.addWidget(self.quit_button)
 
         self.main_layout = QVBoxLayout()
@@ -111,6 +137,7 @@ class MainApp(QWidget):
         self.main_layout.addWidget(self.image_label, stretch=1)
 
         self.status_bar = QStatusBar()
+        self.status_bar.addPermanentWidget(QLabel("Ctrl-Q to Exit"))
         self.main_layout.addWidget(self.status_bar, stretch=0)
 
         self.main_layout.setSpacing(5)
@@ -174,6 +201,7 @@ class MainApp(QWidget):
 
         else:
             self.start_record()
+            self.recording_time_start = time.time()
             self.status_bar.showMessage("Recording to {}.".format(self.writer_filename))
             self.record_button.setText("⏸︎ STOP")
 
@@ -256,7 +284,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     default_config = {
-        'CameraIndex': 0,
         'Interface': 'GigE', # 'WebCam'
         'Mode': 'Bayer_RG8', # For webcam, use 'RGB8'
         'RecordVideo': True,
