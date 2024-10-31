@@ -49,6 +49,8 @@ class MainApp(QWidget):
 
     def __init__(self, config):
         QWidget.__init__(self)
+        self.config = config # Needed by start_writer - TODO remove or refactor everywhere to use!
+
         self.video_size = QSize(config.get('ResX'), config.get('ResY'))
 
         # Initialization related to file saving
@@ -71,6 +73,7 @@ class MainApp(QWidget):
         # Create a shortcut for Ctrl+Q
         quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
         quit_shortcut.activated.connect(self.close)
+
 
     def update_free_space(self):
         total, used, free = shutil.disk_usage(self.recording_directory)
@@ -207,7 +210,7 @@ class MainApp(QWidget):
             self.writer_filename = '{}_{}'.format(self.filename_header, now.strftime("%Y-%m-%d_%H%M"))
 
         self.writer_process = multiprocessing.Process(target=start_writer,
-            args=(config, self.writer_queue, self.writer_done_signal, self.writer_filename))
+            args=(self.config, self.writer_queue, self.writer_done_signal, self.writer_filename))
         self.writer_process.start()
         self.writer_queue_active_signal.value = True
         self.recording_active = True

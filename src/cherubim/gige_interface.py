@@ -1,15 +1,17 @@
-import setproctitle
-import multiprocessing
-import queue
 import numpy as np
 import cv2
-import time
+
+try:
+    from cherubim.generic_camera_interface import GenericCameraInterface
+except ModuleNotFoundError:
+    from generic_camera_interface import GenericCameraInterface
+
+import gi
+gi.require_version ('Aravis', '0.8')
+from gi.repository import Aravis
+
 
 def check_camera(config):  
-    import gi
-    gi.require_version ('Aravis', '0.8')
-    from gi.repository import Aravis
-
     camera = Aravis.Camera.new (None)
 
     sy = config['ResY']
@@ -46,150 +48,114 @@ def check_camera(config):
     return (width, height)
 
 
-def start_camera(config, display_queue, write_queue, stop_signal, write_queue_signal):
-    multiprocessing.current_process().name = "python3 GigE Iface"
-    setproctitle.setproctitle(multiprocessing.current_process().name)
+class GigECameraInterface(GenericCameraInterface):
+    def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
+        super().__init__(config, display_queue, write_queue, stop_signal, write_queue_signal)
 
-    import gi
-    gi.require_version ('Aravis', '0.8')
-    from gi.repository import Aravis
+        try:
+            self.camera = Aravis.Camera.new (config.get('CameraID', None))
+        except:
+            print ("No camera found")
+            exit ()
 
-    class CameraInterface():
-        def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
-            self._display_queue = display_queue
-            self._write_queue = write_queue
-            self._stop_signal = stop_signal
-            self._write_queue_signal = write_queue_signal
+        self.sy = config['ResY']
+        self.sx = config['ResX']
+        self.offset_x = config.get('OffsetX',0)
+        self.offset_y = config.get('OffsetY',0)
 
-            try:
-                self._camera = Aravis.Camera.new (config.get('CameraID', None))
-            except:
-                print ("No camera found")
-                exit ()
+        self.binning = config.get('Binning', 1)
 
-            self.sy = config['ResY']
-            self.sx = config['ResX']
-            self.offset_x = config.get('OffsetX',0)
-            self.offset_y = config.get('OffsetY',0)
+        self.frame_rate = config['FrameRate']
 
-            self.binning = config.get('Binning', 1)
+        self.camera.set_binning(self.binning, self.binning)
+        self.camera.set_region (self.offset_x,self.offset_y,self.sx,self.sy)
+        self.camera.set_frame_rate (self.frame_rate)
+        self.camera.set_exposure_time_auto(False)
+        self.camera.set_exposure_time(
+            config.get('ExposureTime', 0.5/self.frame_rate * 1e6) # default 50% of frame rate
+        )
+        
+        self.mode = config.get('Mode', 'Bayer_RG8')
+        if self.mode not in ['Mono8', 'YUV422', 'Bayer_RG8']:
+            raise ValueError('Unsupported video mode.')
 
-            self.frame_rate = config['FrameRate']
+        if self.mode == 'Mono8':
+            self.camera.set_pixel_format (Aravis.PIXEL_FORMAT_MONO_8)
+            self._bytes_per_pixel = 1
+        elif self.mode == 'YUV422': # TODO: Support this!!!
+            self.camera.set_pixel_format (Aravis.PIXEL_FORMAT_YUV_422_PACKED)
+            self._bytes_per_pixel = 2
+        elif self.mode == 'Bayer_RG8':
+            self.camera.set_pixel_format (Aravis.PIXEL_FORMAT_BAYER_RG_8)
+            self._bytes_per_pixel = 1
+        else:
+            raise ValueError('Unsupported video mode.')
 
-            self._camera.set_binning(self.binning, self.binning)
-            self._camera.set_region (self.offset_x,self.offset_y,self.sx,self.sy)
-            self._camera.set_frame_rate (self.frame_rate)
-            self._camera.set_exposure_time_auto(False)
-            self._camera.set_exposure_time(
-                config.get('ExposureTime', 0.5/self.frame_rate * 1e6) # default 50% of frame rate
-            )
-            
-            self.mode = config.get('Mode', 'Bayer_RG8')
-            if self.mode not in ['Mono8', 'YUV422', 'Bayer_RG8']:
-                raise ValueError('Unsupported video mode.')
+        self.camera.gv_set_packet_size(9000) # Assumes we have set the MTU on the GigE Interface
+        # self.camera.gv_auto_packet_size() # This will set packet size to max. Very important
 
-            if self.mode == 'Mono8':
-                self._camera.set_pixel_format (Aravis.PIXEL_FORMAT_MONO_8)
-                self._bytes_per_pixel = 1
-            elif self.mode == 'YUV422':
-                self._camera.set_pixel_format (Aravis.PIXEL_FORMAT_YUV_422_PACKED)
-                self._bytes_per_pixel = 2
-            elif self.mode == 'Bayer_RG8':
-                self._camera.set_pixel_format (Aravis.PIXEL_FORMAT_BAYER_RG_8)
-                self._bytes_per_pixel = 1
-            else:
-                raise ValueError('Unsupported video mode.')
+        [x,y,width,height] = self.camera.get_region ()
 
+        # Initialize numpy buffer for deBayer'ing
+        # self.rgb_img = np.zeros((height, width,3))  # converted image data is RGB
+        self.frame = None # will be for data from camera
 
-            print('Initial packet size: ', self._camera.gv_get_packet_size())
-            self._camera.gv_set_packet_size(9000) # Assumes we have set the MTU on the GigE Interface
-            # self._camera.gv_auto_packet_size() # This will set packet size to max. Very important
-            print('After autoset packet size: ', self._camera.gv_get_packet_size())
+        payload = self.camera.get_payload ()
 
-            [x,y,width,height] = self._camera.get_region ()
+        print ("Camera vendor : %s" %(self.camera.get_vendor_name ()))
+        print ("Camera model  : %s" %(self.camera.get_model_name ()))
+        print ("Camera device  : %s" %(self.camera.get_device_id ()))
+        print ("ROI           : %dx%d at %d,%d" %(width, height, x, y))
+        print ("Payload       : %d" %(payload))
+        print ("Pixel format  : %s" %(self.camera.get_pixel_format_as_string ()))
 
+        self._stream = self.camera.create_stream (None, None)
 
-            payload = self._camera.get_payload ()
+        for i in range(0,50): # Is 50 enough?
+            self._stream.push_buffer (Aravis.Buffer.new_allocate (payload))
 
-            print ("Camera vendor : %s" %(self._camera.get_vendor_name ()))
-            print ("Camera model  : %s" %(self._camera.get_model_name ()))
-            print ("Camera device  : %s" %(self._camera.get_device_id ()))
-            print ("ROI           : %dx%d at %d,%d" %(width, height, x, y))
-            print ("Payload       : %d" %(payload))
-            print ("Pixel format  : %s" %(self._camera.get_pixel_format_as_string ()))
+        self.image_buffer = None
+        
 
-            self._stream = self._camera.create_stream (None, None)
+    def start_acquisition(self):
+        self.camera.start_acquisition ()
+        print('Acquisiton')
+        return
 
-            for i in range(0,50): # Is 50 enough?
-                self._stream.push_buffer (Aravis.Buffer.new_allocate (payload))
-
-            self._write_queue_is_active = False
-
-        def convert(self, img):
-            if self.mode == 'Mono8': # no need!
-                self._rgb_img = np.frombuffer(img, np.uint8).reshape(self.sy, self.sx,1) # this is a cast!
-            elif self.mode == 'Bayer_RG8':
-                img_np = np.frombuffer(img, np.uint8).reshape(self.sy, self.sx) # this is a cast
-                self._rgb_img = cv2.cvtColor(img_np, cv2.COLOR_BayerRG2BGR)
-
-        def run(self):
-            self._camera.start_acquisition ()
-            print ("Acquisition")
-
-            while not self._stop_signal.value:
-                image = None
-                while image is None and not self._stop_signal.value:
-                    image = self._stream.timeout_pop_buffer (500) # timeout is us
-
-                if self._stop_signal.value:
+    def stop_acquisiton(self):
+        self.camera.stop_acquisition ()
+        self.camera = None
+        return
+    
+    def get_frame(self):
+        self.image_buffer = None
+        while not self._stop_signal.value:
+            self.image_buffer = self._stream.timeout_pop_buffer (500) # timeout is us
+            if self.image_buffer:
+                if (self.image_buffer.get_status() != Aravis.BufferStatus.SUCCESS):
+                    print(self.image_buffer.get_status())
+                    continue # If we get a frame error, we'll print out and keep going
+                else:
                     break
 
-                if image:
-                    if (image.get_status() != Aravis.BufferStatus.SUCCESS):
-                        print(image.get_status())
-                        continue
+        if self._stop_signal.value:
+            return False
+        else:
+            self.frame = self.image_buffer.get_data()
+            self.current_frame_timestamp = self.image_buffer.get_system_timestamp()
 
-                    self.convert(image.get_data())
+            # De-Bayer / convert as needed
+            if self.mode == 'Mono8': # no need!
+                self.current_frame_data = np.frombuffer(self.frame, np.uint8).reshape(self.sy, self.sx,1) # this is a cast!
+            elif self.mode == 'Bayer_RG8':
+                img_np = np.frombuffer(self.frame, np.uint8).reshape(self.sy, self.sx) # this is a cast
+                self.current_frame_data = cv2.cvtColor(img_np, cv2.COLOR_BayerRG2BGR)
 
-                    if self._write_queue_signal.value:
-                        self._write_queue.put((self._rgb_img, image.get_system_timestamp())) # needs to block because we want every frame saved!
-                        self._write_queue_is_active = True
-                    elif self._write_queue_is_active: # We've recently toggled recording off
-                        self._write_queue.put(None)
-                        self._write_queue_is_active = False
+            return True
 
-                    try:
-                        self._display_queue.put(
-                            (self._rgb_img, image.get_system_timestamp()), 
-                            block=False) # doesn't need to block because we don't care about dropping frames
-                    except queue.Full:
-                        continue
-                        
-                    self._stream.push_buffer (image)
-
-            self._camera.stop_acquisition ()
-            self._camera = None
-            if self._write_queue_is_active:
-                self._write_queue.put(None) # Sentinel that we're done!
-                print('Pushed a None onto write queue')
-
-            self._display_queue.put(None) # Sentinel that we're done!
-
-            print ("Stopped acquisition")
-
-        # def close(self):
-        #     if self._camera:
-        #         self._camera.stop_acquisition ()
+    def post_queue(self):
+        self._stream.push_buffer(self.image_buffer)
+        return
 
 
-    camera = CameraInterface(config, display_queue=display_queue, 
-                             stop_signal=stop_signal, 
-                             write_queue=write_queue,
-                             write_queue_signal=write_queue_signal)
-    camera.run()
-    print('Ended run')
-    print('Done in camera exit.')
-
-
-    return
 
