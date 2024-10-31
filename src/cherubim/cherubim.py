@@ -6,13 +6,9 @@ from PySide6.QtWidgets import QApplication, QWidget, QLabel, \
   QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy, \
   QStatusBar
 
-import multiprocessing.queues
-import numpy as np
-
-import setproctitle
 import multiprocessing
+import multiprocessing.queues
 import queue
-import numpy as np
 
 import sys
 import shutil
@@ -22,7 +18,12 @@ import datetime, time
 
 import yaml
 
-from videowriter import start_writer
+try:
+    from cherubim.videowriter import start_writer
+    from cherubim.camera_interface import start_camera
+except ModuleNotFoundError:
+    from videowriter import start_writer
+    from camera_interface import start_camera
 
 
 # https://stackoverflow.com/questions/72188903/pyside6-how-do-i-resize-a-qlabel-without-loosing-the-size-aspect-ratio
@@ -105,7 +106,6 @@ class MainApp(QWidget):
         self.record_button.setCheckable(True)  # Make the button checkable
         self.record_button.clicked.connect(self.handle_record_button)
 
-
         self.filename_label = QLabel("{}".format(self.recording_directory))
         self.disk_space_label = QLabel("") # This will show available disk space
         self.disk_space_label.setSizePolicy( QSizePolicy.Fixed, QSizePolicy.Fixed )
@@ -159,14 +159,6 @@ class MainApp(QWidget):
         self.writer_queue_active_signal = multiprocessing.Value('b', False)
 
         self.recording_active = False
-
-        self.interface_style = config.get('Interface', 'WebCam')
-        if self.interface_style == 'GigE':
-            from gige_interface import start_camera
-        elif self.interface_style == 'WebCam':
-            from opencv_interface import start_camera
-        else:
-            print('Unsupported Interface')
 
         self.camera_process = multiprocessing.Process(target=start_camera, 
             args=(config, self.display_queue, self.writer_queue, 
@@ -280,13 +272,17 @@ def read_config_file(file_path):
             print(f"Error reading YAML file: {e}")
             return None
 
-if __name__ == "__main__":
+
+def main():
     app = QApplication(sys.argv)
 
     default_config = {
-        'Interface': 'GigE', # 'WebCam'
-        'Mode': 'Bayer_RG8', # For webcam, use 'RGB8'
-        'RecordVideo': True,
+        # 'Interface': 'GigE', # 'WebCam'
+        # 'Mode': 'Bayer_RG8', # For webcam, use 'RGB8'
+        'Interface': 'WebCam', # 'WebCam'
+        'CameraID' : 0,
+        'Mode': 'RGB8', # For webcam, use 'RGB8'
+        'RecordVideo': False,
         'Compress': True, # Otherwise Raw!
         'LogDirectory': os.getcwd(),
         'Binning': 2, 
@@ -308,14 +304,20 @@ if __name__ == "__main__":
             print(key, ":", value)
         config = default_config
 
-
-
     interface_style = config.get('Interface', 'WebCam')
     if interface_style == 'GigE':
-        from gige_interface import check_camera
+        try:
+            from cherubim.gige_interface import check_camera
+        except ModuleNotFoundError:
+            from gige_interface import check_camera
+
         pass
     elif interface_style == 'WebCam':
-        from opencv_interface import check_camera
+        try:
+            from cherubim.opencv_interface import check_camera
+        except:
+            from opencv_interface import check_camera
+
         retval = check_camera(config)
         if retval:
             frame_width, frame_height = retval[1], retval[0]
@@ -332,3 +334,7 @@ if __name__ == "__main__":
     win = MainApp(config)
     win.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

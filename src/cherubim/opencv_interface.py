@@ -1,10 +1,9 @@
-import setproctitle
-import multiprocessing
-import queue
-import numpy as np
 import cv2
 import time
-
+try:
+    from cherubim.generic_camera_interface import GenericCameraInterface
+except ModuleNotFoundError:
+    from generic_camera_interface import GenericCameraInterface
 
 def check_camera(config):
     sy = config['ResY']
@@ -45,101 +44,49 @@ def check_camera(config):
         return None
 
 
-def start_camera(config, display_queue, write_queue, stop_signal, write_queue_signal):
+class OpenCVCameraInterface(GenericCameraInterface):
+    def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
+        super().__init__(config, display_queue, write_queue, stop_signal, write_queue_signal)
 
-    multiprocessing.current_process().name = "python3 Webcam Iface"
-    setproctitle.setproctitle(multiprocessing.current_process().name)
+        try:
+            self._capture = cv2.VideoCapture(config.get('CameraID', 0))
+        except:
+            print ("No web camera found for index ", config.get('CameraID', 0))
+            return None
+        
+        self.frame_rate = config['FrameRate']
+        self._capture.set(cv2.CAP_PROP_FPS,self.frame_rate) 
 
-    class CameraInterface():
-        def __init__(self, config, display_queue, write_queue, stop_signal, write_queue_signal):
-            self._display_queue = display_queue
-            self._write_queue = write_queue
-            self._stop_signal = stop_signal
-            self._write_queue_signal = write_queue_signal
+        self.sy = config['ResY']
+        self.sx = config['ResX']
+        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.sx)
+        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.sy)
+        # self.offset_x = config.get('OffsetX',0)
+        # self.offset_y = config.get('OffsetY',0)        
 
-            try:
-                self._capture = cv2.VideoCapture(config.get('CameraIndex', 0))
-            except:
-                print ("No web camera found for index ", config.get('CameraIndex', 0))
-                return None
-            
-            self.sy = config['ResY']
-            self.sx = config['ResX']
-            self.offset_x = config.get('OffsetX',0)
-            self.offset_y = config.get('OffsetY',0)
+        # NOTE THIS MAY NOT ACTUALLY BE WHAT WE GET!
+        # NEED TO TEST PARAMETERS BEFORE STARTING INTERFACE
 
-            self.frame_rate = config['FrameRate']
-            
-            self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.sx)
-            self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.sy)
-            self._capture.set(cv2.CAP_PROP_FPS,self.frame_rate) 
+        self.frame = None
 
-            ret, frame = self._capture.read()
-            if ret is None:
-                print('Failure to acquire frames from camera.')
-                return None
-
-            self.sy = frame.shape[0]
-            self.sx = frame.shape[1]
-
-            self._rgb_img = np.zeros((self.sy, self.sx,3))  # converted image data is RGB
-            self._conversion_required = True
-
-            self._write_queue_is_active = False
-
-
-            # print ("Camera vendor : %s" %(self._camera.get_vendor_name ()))
-            # print ("Camera model  : %s" %(self._camera.get_model_name ()))
-            # print ("ROI           : %dx%d at %d,%d" %(width, height, x, y))
-            # print ("Payload       : %d" %(payload))
-            # print ("Pixel format  : %s" %(self._camera.get_pixel_format_as_string ()))
-
-        def run(self):
-            print ("Acquisition")
-
-            while not self._stop_signal.value:
-                ret, frame = self._capture.read()
-
-                if self._stop_signal.value:
-                    break
-
-                if ret is None:
-                    print('Error in capture. Returned None.')
-                    break
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                if self._write_queue_signal.value:
-                    self._write_queue.put((frame, time.monotonic())) # needs to block because we want every frame saved!
-                    self._write_queue_is_active = True
-                elif self._write_queue_is_active: # We've recently toggled recording off
-                    self._write_queue.put(None)
-                    self._write_queue_is_active = False
-
-                try:
-                    self._display_queue.put((frame, time.monotonic()), block=False)
-                except queue.Full:
-                    print('full')
-                    continue
-
-            self._capture.release()
-            if self._write_queue_is_active:
-                self._write_queue.put(None)
-            self._display_queue.put(None) # Sentinel that we're done!
-            print ("Stopped acquisition")
-
-
-    camera = CameraInterface(config, 
-                             display_queue=display_queue, 
-                             write_queue=write_queue,
-                             stop_signal=stop_signal, 
-                             write_queue_signal=write_queue_signal)
-    try:
-        camera.run()
-    except:
-        print('Caught something!!!')
+    def start_acquisition(self):
+        print('Acquisiton')
         return
-    print('Done in camera exit.')
+
+    def stop_acquisiton(self):
+        self._capture.release()
+        return
+    
+    def get_frame(self):
+        ret, self.frame = self._capture.read() # blocking
+        self.current_frame_data = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
+        self.current_frame_timestamp = time.monotonic()
+        if not ret: #
+            print('Error in OpenCV capture.')
+            return False
+        else:
+            return True
 
 
-    return
+
 

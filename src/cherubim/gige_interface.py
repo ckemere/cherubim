@@ -5,7 +5,6 @@ import numpy as np
 import cv2
 import time
 
-
 def check_camera(config):  
     import gi
     gi.require_version ('Aravis', '0.8')
@@ -109,8 +108,6 @@ def start_camera(config, display_queue, write_queue, stop_signal, write_queue_si
 
             [x,y,width,height] = self._camera.get_region ()
 
-            # Initialize two numpy buffers for deBayer'ing
-            self._rgb_img = np.zeros((height, width,3))  # converted image data is RGB
 
             payload = self._camera.get_payload ()
 
