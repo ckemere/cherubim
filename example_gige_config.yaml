@@ -1,0 +1,17 @@
+# Config file for LUCID PHX016S-CC
+'CameraID': 'Lucid Vision Labs-PHX016S-C-221501060' # Find this out from arv-tool. 
+          # If you don't specify a parameter, it will default to None, 
+          # which will look for cameras and pick the first one. 
+          # (For WebCam interface, we use integers starting from 0)
+'Interface': 'GigE' # 'WebCam'
+'Mode': 'Bayer_RG8' # Alternatively 'Mono8' works! For webcam, use 'RGB8'
+'RecordVideo': True
+'Compress': True # Otherwise Raw!
+'LogDirectory': '/home/me/Data'
+'Binning': 2 # Same for X and Y
+'ResX': 720 # This is after binning!
+'ResY': 540 # This is after binning!
+'OffsetX': 0
+'OffsetY': 0
+'FrameRate': 30
+'ExposureTime': 5000.0 # In us
