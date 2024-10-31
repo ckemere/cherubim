@@ -1,0 +1,72 @@
+[project]
+name = "Cherubim"
+requires-python = ">=3.10.1,<4.0"
+authors = [{ name = "Caleb Kemere", email = "caleb.kemere@rice.edu" }]
+description = "Simple experimental control software in python"
+dynamic=["version"]
+license = { text = "BSDv3" }
+readme = "README.md"
+# keywords = ["static site generator", "static sites", "ssg"]
+classifiers = ['Programming Language :: Python :: 3', 'Operating System :: OS Independent']
+# classifiers = [
+#     "Development Status :: 5 - Production/Stable",
+#     "Environment :: Console",
+#     "Framework :: Pelican",
+#     "Intended Audience :: End Users/Desktop",
+#     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+#     "Operating System :: OS Independent",
+#     "Programming Language :: Python :: 3",
+#     "Programming Language :: Python :: 3.8",
+#     "Programming Language :: Python :: 3.9",
+#     "Programming Language :: Python :: 3.10",
+#     "Programming Language :: Python :: 3.11",
+#     "Programming Language :: Python :: 3.12",
+#     "Programming Language :: Python :: Implementation :: CPython",
+#     "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: Content Management System",
+#     "Topic :: Internet :: WWW/HTTP :: Site Management",
+#     "Topic :: Software Development :: Libraries :: Python Modules",
+#     "Topic :: Text Processing :: Markup :: Markdown",
+#     "Topic :: Text Processing :: Markup :: HTML",
+#     "Topic :: Text Processing :: Markup :: reStructuredText",
+# ]
+
+dependencies = [
+    "pyside6",
+    "numpy",
+    "setproctitle",
+    "pyyaml",
+    "simplejpeg",
+    "pygobject",
+    "opencv-python"
+]
+
+[project.optional-dependencies]
+gige = ["pygobject"]
+
+[project.urls]
+Homepage = "https://github.com/ckemere/cherubim"
+Repository = "https://github.com/ckemerelab/cherubim"
+# Documentation = "https://need documentation"
+
+
+# [tool.autopub]
+# project-name = "TreadmillIO"
+# git-username = "someone"
+# git-email = "1234+someone@users.noreply.github.com"
+# changelog-file = "docs/changelog.rst"
+# changelog-header = "###############"
+# version-header = "="
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+cherubim = "cherubim.cherubim:main"
+
+
+[build-system]
+requires = [ "setuptools>=41,<66", "setuptools-git-versioning>=2.0,<3", ]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools-git-versioning]
+enabled = true

@@ -41,7 +41,7 @@ class VideoWriter():
                         simplejpeg.encode_jpeg(img, quality=quality,
                         colorspace='RGB', colorsubsampling='444'))
             else:
-                raise ValueError('Unsupported video mode.')
+                raise ValueError('Unsupported video mode. ({})'.format(mode))
 
             # self._writer = skvideo.io.FFmpegWriter(video_filename, outputdict={
             #     #'-vcodec': 'libx264', '-b': '300000000'
